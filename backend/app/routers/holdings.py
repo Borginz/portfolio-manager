@@ -31,7 +31,12 @@ def get_holding(holding_id: str, db: Session = Depends(get_db)):
 
 @router.post("", response_model=schemas.HoldingResponse, status_code=201)
 def create_holding(response: Response, payload: dict = Body(default_factory=dict), db: Session = Depends(get_db)):
-    holding = crud.create_holding(db, payload)
+    holding, merged = crud.create_holding(db, payload)
+    # A symbol matching an existing holding merges into it instead of
+    # creating a new row — 200 (existing resource updated) rather than
+    # 201 (new resource created) reflects that accurately.
+    if merged:
+        response.status_code = 200
     response.headers["Location"] = f"/api/holdings/{holding.id}"
     return crud.to_response_dict(holding)
 

@@ -250,7 +250,19 @@ def get_holding_or_404(db: Session, raw_id) -> models.Holding:
     return holding
 
 
-def create_holding(db: Session, data: dict) -> models.Holding:
+def get_holding_by_symbol(db: Session, symbol: str) -> Optional[models.Holding]:
+    return db.query(models.Holding).filter(models.Holding.symbol == symbol).first()
+
+
+def create_holding(db: Session, data: dict) -> tuple:
+    """Creates a new holding, unless a holding with the same symbol already
+    exists — in that case the two positions are merged (shares summed,
+    cost_basis_per_unit recomputed as the quantity-weighted average) rather
+    than creating a duplicate row for the same stock.
+
+    Returns (holding, merged) so the router can report 200 (merged into an
+    existing position) vs 201 (brand new holding) accordingly.
+    """
     if not isinstance(data, dict):
         data = {}
     errors: list = []
@@ -269,6 +281,13 @@ def create_holding(db: Session, data: dict) -> models.Holding:
     if errors:
         raise ValidationError("Validation failed for holding.", errors)
 
+    existing = get_holding_by_symbol(db, symbol) if symbol else None
+    if existing is not None:
+        holding = _merge_into_holding(
+            db, existing, quantity, cost_basis_per_unit, current_price, purchase_date
+        )
+        return holding, True
+
     if current_price is None:
         current_price = cost_basis_per_unit
 
@@ -285,6 +304,43 @@ def create_holding(db: Session, data: dict) -> models.Holding:
         updated_at=now,
     )
     db.add(holding)
+    db.commit()
+    db.refresh(holding)
+    _create_snapshot(db)
+    return holding, False
+
+
+def _merge_into_holding(
+    db: Session,
+    holding: models.Holding,
+    added_quantity: Decimal,
+    added_cost_basis_per_unit: Decimal,
+    new_current_price: Optional[Decimal],
+    new_purchase_date,
+) -> models.Holding:
+    existing_quantity = Decimal(holding.quantity)
+    existing_cost_basis_per_unit = Decimal(holding.cost_basis_per_unit)
+    combined_quantity = existing_quantity + added_quantity
+
+    # Quantity-weighted average cost basis, e.g. 10 shares @ $150 + 5 @ $180
+    # -> 15 shares @ $160 average cost.
+    combined_cost_basis_per_unit = (
+        existing_quantity * existing_cost_basis_per_unit
+        + added_quantity * added_cost_basis_per_unit
+    ) / combined_quantity
+
+    holding.quantity = combined_quantity
+    holding.cost_basis_per_unit = combined_cost_basis_per_unit
+    if new_current_price is not None:
+        holding.current_price = new_current_price
+    if new_purchase_date is not None:
+        holding.purchase_date = (
+            min(holding.purchase_date, new_purchase_date)
+            if holding.purchase_date is not None
+            else new_purchase_date
+        )
+    holding.updated_at = _utcnow()
+
     db.commit()
     db.refresh(holding)
     _create_snapshot(db)

@@ -37,6 +37,56 @@ def test_create_holding_defaults_current_price_to_cost_basis(client):
     assert body["unrealized_pl"] == 0.00
 
 
+def test_create_holding_merges_into_existing_symbol(client):
+    first = client.post(
+        "/api/holdings",
+        json={"symbol": "AAPL", "name": "Apple Inc.", "quantity": 10, "cost_basis_per_unit": 150.00},
+    )
+    assert first.status_code == 201
+    holding_id = first.json()["id"]
+
+    second = client.post(
+        "/api/holdings",
+        json={"symbol": "aapl", "name": "Apple Inc.", "quantity": 5, "cost_basis_per_unit": 180.00},
+    )
+    assert second.status_code == 200  # merged into the existing holding, not a new resource
+    body = second.json()
+    assert body["id"] == holding_id
+    assert body["quantity"] == 15
+    # weighted average: (10*150 + 5*180) / 15 = 160
+    assert body["cost_basis_per_unit"] == 160.00
+    assert body["cost_basis_total"] == 2400.00
+
+    list_resp = client.get("/api/holdings")
+    assert len(list_resp.json()) == 1  # still a single row, not two
+
+
+def test_create_holding_merge_keeps_existing_current_price_if_not_supplied(client):
+    client.post(
+        "/api/holdings",
+        json={"symbol": "MSFT", "name": "Microsoft", "quantity": 2, "cost_basis_per_unit": 300, "current_price": 320},
+    )
+    resp = client.post(
+        "/api/holdings",
+        json={"symbol": "MSFT", "name": "Microsoft", "quantity": 1, "cost_basis_per_unit": 310},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["current_price"] == 320.00  # untouched — no current_price supplied on the merge
+
+
+def test_create_holding_merge_uses_new_current_price_if_supplied(client):
+    client.post(
+        "/api/holdings",
+        json={"symbol": "MSFT", "name": "Microsoft", "quantity": 2, "cost_basis_per_unit": 300, "current_price": 320},
+    )
+    resp = client.post(
+        "/api/holdings",
+        json={"symbol": "MSFT", "name": "Microsoft", "quantity": 1, "cost_basis_per_unit": 310, "current_price": 330},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["current_price"] == 330.00
+
+
 def test_create_holding_validation_error_collects_all_fields(client):
     payload = {"quantity": 0}
     resp = client.post("/api/holdings", json=payload)

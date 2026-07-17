@@ -667,8 +667,13 @@ async function handleFormSubmit(e) {
       await updateHolding(state.editingId, payload);
       showToast({ title: "Holding updated." });
     } else {
+      const existing = state.holdings.find((h) => h.symbol === payload.symbol);
       await createHolding(payload);
-      showToast({ title: "Holding added." });
+      showToast({
+        title: existing
+          ? `Added ${formatQuantity(payload.quantity)} more shares to your existing ${payload.symbol} position.`
+          : "Holding added.",
+      });
     }
     resetForm();
     await loadAll();
