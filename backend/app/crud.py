@@ -4,9 +4,9 @@ Routers (routers/holdings.py, routers/portfolio.py) call only functions in
 this module (plus price_service.py directly, per the layout) — they never
 touch the DB session or yfinance themselves.
 
-Custom exceptions defined here (`ValidationError`, `HoldingNotFoundError`,
-`NotRefreshableError`) are translated into the shared error envelope by
-global exception handlers registered in main.py.
+Custom exceptions defined here (`ValidationError`, `HoldingNotFoundError`)
+are translated into the shared error envelope by global exception handlers
+registered in main.py.
 """
 
 from datetime import date, datetime, timezone
@@ -17,15 +17,13 @@ from sqlalchemy.orm import Session
 
 from . import models, price_service
 
-ASSET_TYPES = ("STOCK", "BOND", "CRYPTO", "CASH")
-
 
 def _utcnow() -> datetime:
     """Naive UTC `datetime`, matching the naive `DateTime` columns in
     models.py (schemas.py's serializer treats naive datetimes as UTC and
     renders them with a trailing 'Z')."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
-REFRESHABLE_ASSET_TYPES = ("STOCK", "CRYPTO")
+
 
 MAX_PERFORMANCE_LIMIT = 2000
 DEFAULT_PERFORMANCE_LIMIT = 500
@@ -53,16 +51,6 @@ class HoldingNotFoundError(Exception):
     def __init__(self, holding_id):
         self.holding_id = holding_id
         super().__init__(f"Holding {holding_id} not found.")
-
-
-class NotRefreshableError(Exception):
-    def __init__(self, holding_id, asset_type):
-        self.holding_id = holding_id
-        self.asset_type = asset_type
-        super().__init__(
-            f"Holding {holding_id} has asset_type {asset_type} and is not "
-            "eligible for live price refresh."
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +97,6 @@ def to_response_dict(holding: models.Holding) -> dict:
 
     return {
         "id": holding.id,
-        "asset_type": holding.asset_type,
         "symbol": holding.symbol,
         "name": holding.name,
         "quantity": float(quantity),
@@ -120,7 +107,6 @@ def to_response_dict(holding: models.Holding) -> dict:
         "unrealized_pl": _round_money(unrealized_pl),
         "unrealized_pl_percent": _round_percent(unrealized_pl_percent),
         "purchase_date": holding.purchase_date,
-        "is_refreshable": holding.asset_type in REFRESHABLE_ASSET_TYPES,
         "last_price_updated_at": holding.last_price_updated_at,
         "created_at": holding.created_at,
         "updated_at": holding.updated_at,
@@ -158,10 +144,12 @@ def _validate_name(data: dict, errors: list, required: bool, current: Optional[s
     return trimmed
 
 
-def _validate_symbol(data: dict, errors: list, asset_type: str, is_create: bool, current: Optional[str]) -> Optional[str]:
-    """Applies §1.3 rule 2. Only touches the value if `symbol` key is present
-    (on update) — for create, `data` always effectively "contains" the key
-    since absence and explicit null both mean "not supplied"."""
+def _validate_symbol(data: dict, errors: list, is_create: bool, current: Optional[str]) -> Optional[str]:
+    """Every holding is a stock, so `symbol` is always required on create and
+    freely editable (but still required) on update. Only touches the value
+    if the `symbol` key is present (on update) — for create, `data` always
+    effectively "contains" the key since absence and explicit null both
+    mean "not supplied"."""
     key_present = "symbol" in data or is_create
     if not key_present:
         return current
@@ -169,17 +157,8 @@ def _validate_symbol(data: dict, errors: list, asset_type: str, is_create: bool,
     raw = data.get("symbol")
     supplied = raw is not None and str(raw).strip() != ""
 
-    if asset_type in ("BOND", "CASH"):
-        if supplied:
-            errors.append(
-                {"field": "symbol", "message": f"symbol must not be supplied for asset_type {asset_type}"}
-            )
-            return current
-        return None
-
-    # STOCK / CRYPTO
     if not supplied:
-        errors.append({"field": "symbol", "message": f"symbol is required for asset_type {asset_type}"})
+        errors.append({"field": "symbol", "message": "symbol is required"})
         return current
     trimmed = str(raw).strip().upper()
     if not (1 <= len(trimmed) <= 20):
@@ -276,39 +255,15 @@ def create_holding(db: Session, data: dict) -> models.Holding:
         data = {}
     errors: list = []
 
-    asset_type_raw = data.get("asset_type")
-    asset_type = None
-    if asset_type_raw is None:
-        errors.append({"field": "asset_type", "message": "asset_type is required"})
-    elif asset_type_raw not in ASSET_TYPES:
-        errors.append(
-            {"field": "asset_type", "message": f"asset_type must be one of {list(ASSET_TYPES)}"}
-        )
-    else:
-        asset_type = asset_type_raw
-
     name = _validate_name(data, errors, required=True, current=None)
-
-    # Symbol validation needs a known asset_type; skip it if asset_type itself was invalid.
-    symbol = None
-    if asset_type is not None:
-        symbol = _validate_symbol(data, errors, asset_type, is_create=True, current=None)
-
+    symbol = _validate_symbol(data, errors, is_create=True, current=None)
     quantity = _validate_quantity(data, errors, required=True, current=None)
-
-    cost_basis_per_unit = None
-    current_price = None
-    if asset_type == "CASH":
-        cost_basis_per_unit = Decimal("1.00")
-        current_price = Decimal("1.00")
-    elif asset_type is not None:
-        cost_basis_per_unit = _validate_price_field(
-            data, errors, "cost_basis_per_unit", required=True, current=None
-        )
-        current_price = _validate_price_field(
-            data, errors, "current_price", required=False, current=None
-        )
-
+    cost_basis_per_unit = _validate_price_field(
+        data, errors, "cost_basis_per_unit", required=True, current=None
+    )
+    current_price = _validate_price_field(
+        data, errors, "current_price", required=False, current=None
+    )
     purchase_date = _validate_purchase_date(data, errors, current=None)
 
     if errors:
@@ -319,7 +274,6 @@ def create_holding(db: Session, data: dict) -> models.Holding:
 
     now = _utcnow()
     holding = models.Holding(
-        asset_type=asset_type,
         symbol=symbol,
         name=name,
         quantity=quantity,
@@ -341,32 +295,21 @@ def update_holding(db: Session, holding: models.Holding, data: dict) -> models.H
     if not isinstance(data, dict):
         data = {}
     errors: list = []
-    asset_type = holding.asset_type
-
-    if "asset_type" in data:
-        new_type = data.get("asset_type")
-        if new_type != asset_type:
-            errors.append({"field": "asset_type", "message": "asset_type is immutable"})
-        # same value supplied -> no-op, nothing to do
 
     name = _validate_name(data, errors, required=False, current=holding.name)
-    symbol = _validate_symbol(data, errors, asset_type, is_create=False, current=holding.symbol)
+    symbol = _validate_symbol(data, errors, is_create=False, current=holding.symbol)
     quantity = _validate_quantity(data, errors, required=False, current=Decimal(holding.quantity))
 
-    if asset_type == "CASH":
-        cost_basis_per_unit = Decimal("1.00")
-        current_price = Decimal("1.00")
-    else:
-        cost_basis_per_unit = _validate_price_field(
-            data, errors, "cost_basis_per_unit", required=False, current=Decimal(holding.cost_basis_per_unit)
-        )
-        if cost_basis_per_unit is None:
-            cost_basis_per_unit = Decimal(holding.cost_basis_per_unit)
-        current_price = _validate_price_field(
-            data, errors, "current_price", required=False, current=Decimal(holding.current_price)
-        )
-        if current_price is None:
-            current_price = Decimal(holding.current_price)
+    cost_basis_per_unit = _validate_price_field(
+        data, errors, "cost_basis_per_unit", required=False, current=Decimal(holding.cost_basis_per_unit)
+    )
+    if cost_basis_per_unit is None:
+        cost_basis_per_unit = Decimal(holding.cost_basis_per_unit)
+    current_price = _validate_price_field(
+        data, errors, "current_price", required=False, current=Decimal(holding.current_price)
+    )
+    if current_price is None:
+        current_price = Decimal(holding.current_price)
 
     purchase_date = _validate_purchase_date(data, errors, current=holding.purchase_date)
 
@@ -411,26 +354,19 @@ def apply_price_refresh(db: Session, holding: models.Holding, price: float) -> m
 
 def refresh_single_price(db: Session, raw_id) -> models.Holding:
     holding = get_holding_or_404(db, raw_id)
-    if holding.asset_type not in REFRESHABLE_ASSET_TYPES:
-        raise NotRefreshableError(holding.id, holding.asset_type)
     price = price_service.get_latest_price(holding.symbol)
     return apply_price_refresh(db, holding, price)
 
 
 def refresh_all_prices(db: Session) -> dict:
-    eligible = (
-        db.query(models.Holding)
-        .filter(models.Holding.asset_type.in_(REFRESHABLE_ASSET_TYPES))
-        .order_by(models.Holding.id.asc())
-        .all()
-    )
-    total_eligible = len(eligible)
+    holdings = db.query(models.Holding).order_by(models.Holding.id.asc()).all()
+    total_eligible = len(holdings)
     refreshed_at = _utcnow()
     results = []
     succeeded = 0
     failed = 0
 
-    for holding in eligible:
+    for holding in holdings:
         try:
             price = price_service.get_latest_price(holding.symbol)
         except price_service.TickerNotFoundError as exc:
@@ -494,39 +430,18 @@ def refresh_all_prices(db: Session) -> dict:
 def get_portfolio_summary(db: Session) -> dict:
     holdings = db.query(models.Holding).all()
 
-    totals = {t: {"market_value": Decimal("0"), "cost_basis": Decimal("0")} for t in ASSET_TYPES}
     total_market_value = Decimal("0")
     total_cost_basis = Decimal("0")
 
     for h in holdings:
         quantity = Decimal(h.quantity)
-        mv = quantity * Decimal(h.current_price)
-        cb = quantity * Decimal(h.cost_basis_per_unit)
-        totals[h.asset_type]["market_value"] += mv
-        totals[h.asset_type]["cost_basis"] += cb
-        total_market_value += mv
-        total_cost_basis += cb
+        total_market_value += quantity * Decimal(h.current_price)
+        total_cost_basis += quantity * Decimal(h.cost_basis_per_unit)
 
     total_unrealized_pl = total_market_value - total_cost_basis
     total_return_percent = (
         Decimal("0") if total_cost_basis == 0 else (total_unrealized_pl / total_cost_basis) * 100
     )
-
-    by_asset_type = []
-    for t in ASSET_TYPES:
-        mv = totals[t]["market_value"]
-        cb = totals[t]["cost_basis"]
-        pl = mv - cb
-        pct = Decimal("0") if total_market_value == 0 else (mv / total_market_value) * 100
-        by_asset_type.append(
-            {
-                "asset_type": t,
-                "market_value": _round_money(mv),
-                "cost_basis": _round_money(cb),
-                "unrealized_pl": _round_money(pl),
-                "percent_of_portfolio": _round_percent(pct),
-            }
-        )
 
     return {
         "as_of": _utcnow(),
@@ -534,7 +449,6 @@ def get_portfolio_summary(db: Session) -> dict:
         "total_cost_basis": _round_money(total_cost_basis),
         "total_unrealized_pl": _round_money(total_unrealized_pl),
         "total_return_percent": _round_percent(total_return_percent),
-        "by_asset_type": by_asset_type,
         "holdings_count": len(holdings),
     }
 

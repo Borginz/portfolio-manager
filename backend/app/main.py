@@ -97,11 +97,6 @@ async def not_found_handler(request: Request, exc: crud.HoldingNotFoundError):
     return _error_response(404, "NOT_FOUND", f"Holding {exc.holding_id} not found.")
 
 
-@app.exception_handler(crud.NotRefreshableError)
-async def not_refreshable_handler(request: Request, exc: crud.NotRefreshableError):
-    return _error_response(409, "NOT_REFRESHABLE", str(exc))
-
-
 @app.exception_handler(price_service.TickerNotFoundError)
 async def ticker_not_found_handler(request: Request, exc: price_service.TickerNotFoundError):
     return _error_response(422, "TICKER_NOT_FOUND", str(exc))

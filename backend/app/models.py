@@ -1,9 +1,4 @@
-"""SQLAlchemy ORM models.
-
-`asset_type` is stored as a plain string (validated at the crud.py layer
-against the four allowed values) rather than a DB-level ENUM, so the same
-model works identically against MySQL in production and SQLite in tests.
-"""
+"""SQLAlchemy ORM models."""
 
 from datetime import datetime, timezone
 
@@ -23,7 +18,6 @@ class Holding(Base):
     __tablename__ = "holdings"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    asset_type = Column(String(10), nullable=False, index=True)
     symbol = Column(String(20), nullable=True)
     name = Column(String(200), nullable=False)
     quantity = Column(Numeric(24, 8), nullable=False)

@@ -53,30 +53,9 @@
     </div>
   </section>
 
-  <!-- KPI tiles per asset type -->
-  <section class="tiles-row" id="tiles-row" aria-label="Value by asset type">
-    <!-- populated by JS -->
-  </section>
-
   <!-- Charts -->
   <section class="charts-row">
     <div class="card chart-card">
-      <div class="chart-card-head">
-        <h2>Asset Allocation</h2>
-      </div>
-      <div class="allocation-body">
-        <div class="donut-wrap">
-          <canvas id="allocation-canvas" width="220" height="220" role="img" aria-label="Asset allocation donut chart"></canvas>
-          <div class="donut-center">
-            <div id="donut-center-value" class="donut-center-value">—</div>
-            <div class="donut-center-label muted">Total</div>
-          </div>
-        </div>
-        <ul id="allocation-legend" class="legend-list"></ul>
-      </div>
-    </div>
-
-    <div class="card chart-card chart-card-wide">
       <div class="chart-card-head">
         <h2>Portfolio Performance</h2>
         <div class="range-filter" id="range-filter" role="group" aria-label="Performance time range">
@@ -104,41 +83,30 @@
       <input type="hidden" id="f-id" value="" />
       <div class="form-grid">
         <div class="field">
-          <label for="f-asset-type">Asset type</label>
-          <select id="f-asset-type" name="asset_type" required>
-            <option value="STOCK">Stock</option>
-            <option value="BOND">Bond</option>
-            <option value="CRYPTO">Crypto</option>
-            <option value="CASH">Cash</option>
-          </select>
-          <p class="field-error" data-error-for="asset_type"></p>
-        </div>
-
-        <div class="field" id="f-symbol-wrap">
           <label for="f-symbol">Symbol</label>
-          <input type="text" id="f-symbol" name="symbol" placeholder="AAPL" maxlength="20" autocomplete="off" />
+          <input type="text" id="f-symbol" name="symbol" placeholder="AAPL" maxlength="20" autocomplete="off" required />
           <p class="field-error" data-error-for="symbol"></p>
         </div>
 
         <div class="field">
-          <label for="f-name">Name</label>
+          <label for="f-name">Company name</label>
           <input type="text" id="f-name" name="name" placeholder="Apple Inc." maxlength="200" required />
           <p class="field-error" data-error-for="name"></p>
         </div>
 
         <div class="field">
-          <label for="f-quantity" id="f-quantity-label">Quantity</label>
+          <label for="f-quantity">Shares</label>
           <input type="number" id="f-quantity" name="quantity" step="0.00000001" min="0.00000001" placeholder="10" required />
           <p class="field-error" data-error-for="quantity"></p>
         </div>
 
-        <div class="field" id="f-cost-basis-wrap">
+        <div class="field">
           <label for="f-cost-basis">Cost basis / unit</label>
-          <input type="number" id="f-cost-basis" name="cost_basis_per_unit" step="0.00000001" min="0" placeholder="150.00" />
+          <input type="number" id="f-cost-basis" name="cost_basis_per_unit" step="0.00000001" min="0" placeholder="150.00" required />
           <p class="field-error" data-error-for="cost_basis_per_unit"></p>
         </div>
 
-        <div class="field" id="f-current-price-wrap">
+        <div class="field">
           <label for="f-current-price">Current price <span class="muted">(optional)</span></label>
           <input type="number" id="f-current-price" name="current_price" step="0.00000001" min="0" placeholder="defaults to cost basis" />
           <p class="field-error" data-error-for="current_price"></p>
@@ -169,7 +137,7 @@
 
     <div id="holdings-empty" class="empty-state" hidden>
       <p class="empty-state-title">No holdings yet</p>
-      <p class="empty-state-sub">Use the form above to add your first stock, bond, crypto position, or cash balance.</p>
+      <p class="empty-state-sub">Use the form above to add your first stock.</p>
     </div>
 
     <div class="table-scroll">
@@ -177,7 +145,6 @@
         <thead>
           <tr>
             <th scope="col">Holding</th>
-            <th scope="col">Type</th>
             <th scope="col" class="num">Qty</th>
             <th scope="col" class="num">Cost / unit</th>
             <th scope="col" class="num">Price</th>
@@ -195,7 +162,7 @@
 </main>
 
 <footer class="app-footer muted">
-  Portfolio Manager — single-user demo. Prices are stored values, refreshed on demand via Yahoo Finance.
+  Portfolio Manager — single-user stock demo. Prices are stored values, refreshed on demand via Yahoo Finance.
 </footer>
 
 <script type="module" src="js/app.js"></script>

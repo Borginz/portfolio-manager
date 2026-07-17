@@ -1,6 +1,5 @@
-def test_create_and_get_stock_holding(client):
+def test_create_and_get_holding(client):
     payload = {
-        "asset_type": "STOCK",
         "symbol": "aapl",
         "name": "Apple Inc.",
         "quantity": 10,
@@ -15,7 +14,6 @@ def test_create_and_get_stock_holding(client):
     assert body["cost_basis_total"] == 1500.00
     assert body["market_value"] == 1955.00
     assert body["unrealized_pl"] == 455.00
-    assert body["is_refreshable"] is True
     assert body["last_price_updated_at"] is None
     holding_id = body["id"]
     assert resp.headers["location"] == f"/api/holdings/{holding_id}"
@@ -25,9 +23,8 @@ def test_create_and_get_stock_holding(client):
     assert get_resp.json()["id"] == holding_id
 
 
-def test_create_stock_defaults_current_price_to_cost_basis(client):
+def test_create_holding_defaults_current_price_to_cost_basis(client):
     payload = {
-        "asset_type": "STOCK",
         "symbol": "MSFT",
         "name": "Microsoft",
         "quantity": 2,
@@ -40,39 +37,8 @@ def test_create_stock_defaults_current_price_to_cost_basis(client):
     assert body["unrealized_pl"] == 0.00
 
 
-def test_create_cash_holding_forces_price(client):
-    payload = {"asset_type": "CASH", "name": "Cash - Checking", "quantity": 5000, "cost_basis_per_unit": 999}
-    resp = client.post("/api/holdings", json=payload)
-    assert resp.status_code == 201
-    body = resp.json()
-    assert body["cost_basis_per_unit"] == 1.00
-    assert body["current_price"] == 1.00
-    assert body["symbol"] is None
-    assert body["unrealized_pl"] == 0.00
-    assert body["is_refreshable"] is False
-
-
-def test_create_bond_holding(client):
-    payload = {
-        "asset_type": "BOND",
-        "name": "US Treasury Note 2030",
-        "quantity": 5,
-        "cost_basis_per_unit": 985.00,
-        "current_price": 991.00,
-        "purchase_date": "2023-01-10",
-    }
-    resp = client.post("/api/holdings", json=payload)
-    assert resp.status_code == 201
-    body = resp.json()
-    assert body["symbol"] is None
-    assert body["cost_basis_total"] == 4925.00
-    assert body["market_value"] == 4955.00
-    assert body["unrealized_pl"] == 30.00
-    assert body["is_refreshable"] is False
-
-
 def test_create_holding_validation_error_collects_all_fields(client):
-    payload = {"asset_type": "STOCK", "quantity": 0, "cost_basis_per_unit": 10}
+    payload = {"quantity": 0}
     resp = client.post("/api/holdings", json=payload)
     assert resp.status_code == 400
     body = resp.json()
@@ -81,13 +47,12 @@ def test_create_holding_validation_error_collects_all_fields(client):
     assert "name" in fields
     assert "symbol" in fields
     assert "quantity" in fields
+    assert "cost_basis_per_unit" in fields
 
 
-def test_create_holding_symbol_rejected_for_bond(client):
+def test_create_holding_symbol_required(client):
     payload = {
-        "asset_type": "BOND",
-        "symbol": "SHOULD_NOT_BE_HERE",
-        "name": "Bond",
+        "name": "Apple Inc.",
         "quantity": 1,
         "cost_basis_per_unit": 100,
     }
@@ -95,12 +60,6 @@ def test_create_holding_symbol_rejected_for_bond(client):
     assert resp.status_code == 400
     fields = {d["field"] for d in resp.json()["error"]["details"]}
     assert "symbol" in fields
-
-
-def test_create_holding_invalid_asset_type(client):
-    resp = client.post("/api/holdings", json={"asset_type": "FOO", "name": "x", "quantity": 1})
-    assert resp.status_code == 400
-    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_create_holding_malformed_json_body(client):
@@ -123,7 +82,6 @@ def test_list_holdings_empty(client):
 
 def test_update_holding(client):
     payload = {
-        "asset_type": "STOCK",
         "symbol": "MSFT",
         "name": "Microsoft",
         "quantity": 5,
@@ -140,18 +98,20 @@ def test_update_holding(client):
     assert body["last_price_updated_at"] is None
 
 
-def test_update_holding_same_asset_type_is_noop(client):
-    payload = {"asset_type": "STOCK", "symbol": "GOOG", "name": "Alphabet", "quantity": 1, "cost_basis_per_unit": 100}
+def test_update_holding_symbol(client):
+    payload = {"symbol": "GOOG", "name": "Alphabet", "quantity": 1, "cost_basis_per_unit": 100}
     created = client.post("/api/holdings", json=payload).json()
-    resp = client.patch(f"/api/holdings/{created['id']}", json={"asset_type": "STOCK", "name": "Alphabet Inc."})
+    resp = client.patch(f"/api/holdings/{created['id']}", json={"symbol": "goog2", "name": "Alphabet Inc."})
     assert resp.status_code == 200
-    assert resp.json()["name"] == "Alphabet Inc."
+    body = resp.json()
+    assert body["name"] == "Alphabet Inc."
+    assert body["symbol"] == "GOOG2"
 
 
-def test_update_holding_asset_type_change_rejected(client):
-    payload = {"asset_type": "STOCK", "symbol": "GOOG", "name": "Alphabet", "quantity": 1, "cost_basis_per_unit": 100}
+def test_update_holding_symbol_cannot_be_blanked(client):
+    payload = {"symbol": "GOOG", "name": "Alphabet", "quantity": 1, "cost_basis_per_unit": 100}
     created = client.post("/api/holdings", json=payload).json()
-    resp = client.patch(f"/api/holdings/{created['id']}", json={"asset_type": "CRYPTO"})
+    resp = client.patch(f"/api/holdings/{created['id']}", json={"symbol": ""})
     assert resp.status_code == 400
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
 
@@ -169,7 +129,7 @@ def test_get_holding_non_integer_id_is_404(client):
 
 
 def test_delete_holding(client):
-    payload = {"asset_type": "CASH", "name": "Cash", "quantity": 100}
+    payload = {"symbol": "AAPL", "name": "Apple", "quantity": 100, "cost_basis_per_unit": 10}
     created = client.post("/api/holdings", json=payload).json()
     resp = client.delete(f"/api/holdings/{created['id']}")
     assert resp.status_code == 204
@@ -185,7 +145,7 @@ def test_delete_holding_not_found(client):
 def test_refresh_price_success(client, monkeypatch):
     from app import price_service
 
-    payload = {"asset_type": "STOCK", "symbol": "AAPL", "name": "Apple Inc.", "quantity": 10, "cost_basis_per_unit": 150}
+    payload = {"symbol": "AAPL", "name": "Apple Inc.", "quantity": 10, "cost_basis_per_unit": 150}
     created = client.post("/api/holdings", json=payload).json()
 
     monkeypatch.setattr(price_service, "get_latest_price", lambda symbol: 210.55)
@@ -197,14 +157,6 @@ def test_refresh_price_success(client, monkeypatch):
     assert body["last_price_updated_at"] is not None
 
 
-def test_refresh_price_not_refreshable(client):
-    payload = {"asset_type": "BOND", "name": "T-Note", "quantity": 5, "cost_basis_per_unit": 985}
-    created = client.post("/api/holdings", json=payload).json()
-    resp = client.post(f"/api/holdings/{created['id']}/refresh-price")
-    assert resp.status_code == 409
-    assert resp.json()["error"]["code"] == "NOT_REFRESHABLE"
-
-
 def test_refresh_price_not_found(client):
     resp = client.post("/api/holdings/9999/refresh-price")
     assert resp.status_code == 404
@@ -214,7 +166,7 @@ def test_refresh_price_not_found(client):
 def test_refresh_price_ticker_not_found(client, monkeypatch):
     from app import price_service
 
-    payload = {"asset_type": "STOCK", "symbol": "ZZZZ", "name": "Bad Ticker", "quantity": 1, "cost_basis_per_unit": 10}
+    payload = {"symbol": "ZZZZ", "name": "Bad Ticker", "quantity": 1, "cost_basis_per_unit": 10}
     created = client.post("/api/holdings", json=payload).json()
 
     def fake_price(symbol):
@@ -231,7 +183,7 @@ def test_refresh_price_ticker_not_found(client, monkeypatch):
 def test_refresh_price_upstream_unavailable(client, monkeypatch):
     from app import price_service
 
-    payload = {"asset_type": "STOCK", "symbol": "AAPL", "name": "Apple Inc.", "quantity": 1, "cost_basis_per_unit": 10}
+    payload = {"symbol": "AAPL", "name": "Apple Inc.", "quantity": 1, "cost_basis_per_unit": 10}
     created = client.post("/api/holdings", json=payload).json()
 
     def fake_price(symbol):
@@ -248,15 +200,11 @@ def test_refresh_prices_bulk(client, monkeypatch):
 
     client.post(
         "/api/holdings",
-        json={"asset_type": "STOCK", "symbol": "AAPL", "name": "Apple", "quantity": 1, "cost_basis_per_unit": 100},
+        json={"symbol": "AAPL", "name": "Apple", "quantity": 1, "cost_basis_per_unit": 100},
     )
     client.post(
         "/api/holdings",
-        json={"asset_type": "STOCK", "symbol": "ZZZZ", "name": "Bad", "quantity": 1, "cost_basis_per_unit": 10},
-    )
-    client.post(
-        "/api/holdings",
-        json={"asset_type": "BOND", "name": "Bond", "quantity": 1, "cost_basis_per_unit": 100},
+        json={"symbol": "ZZZZ", "name": "Bad", "quantity": 1, "cost_basis_per_unit": 10},
     )
 
     def fake_price(symbol):
@@ -283,8 +231,7 @@ def test_refresh_prices_bulk(client, monkeypatch):
     assert success_item["current_price"] == 123.45
 
 
-def test_refresh_prices_bulk_no_eligible_holdings(client):
-    client.post("/api/holdings", json={"asset_type": "CASH", "name": "Cash", "quantity": 100})
+def test_refresh_prices_bulk_no_holdings(client):
     resp = client.post("/api/holdings/refresh-prices")
     assert resp.status_code == 200
     body = resp.json()

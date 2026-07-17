@@ -14,18 +14,6 @@ import {
 } from "./api.js";
 
 // ---------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------
-
-const ASSET_TYPE_META = {
-  STOCK: { label: "Stocks", varName: "--series-stock" },
-  BOND: { label: "Bonds", varName: "--series-bond" },
-  CRYPTO: { label: "Crypto", varName: "--series-crypto" },
-  CASH: { label: "Cash", varName: "--series-cash" },
-};
-const ASSET_TYPE_ORDER = ["STOCK", "BOND", "CRYPTO", "CASH"];
-
-// ---------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------
 
@@ -58,12 +46,6 @@ const el = {
   heroCostBasis: $("#hero-cost-basis"),
   heroPlValue: $("#hero-pl-value"),
 
-  tilesRow: $("#tiles-row"),
-
-  allocationCanvas: $("#allocation-canvas"),
-  donutCenterValue: $("#donut-center-value"),
-  allocationLegend: $("#allocation-legend"),
-
   rangeFilter: $("#range-filter"),
   performanceCanvas: $("#performance-canvas"),
   perfEmpty: $("#perf-empty"),
@@ -75,15 +57,10 @@ const el = {
   formSubmitBtn: $("#form-submit-btn"),
   formCancelBtn: $("#form-cancel-btn"),
   fId: $("#f-id"),
-  fAssetType: $("#f-asset-type"),
-  fSymbolWrap: $("#f-symbol-wrap"),
   fSymbol: $("#f-symbol"),
   fName: $("#f-name"),
   fQuantity: $("#f-quantity"),
-  fQuantityLabel: $("#f-quantity-label"),
-  fCostBasisWrap: $("#f-cost-basis-wrap"),
   fCostBasis: $("#f-cost-basis"),
-  fCurrentPriceWrap: $("#f-current-price-wrap"),
   fCurrentPrice: $("#f-current-price"),
   fPurchaseDate: $("#f-purchase-date"),
 
@@ -112,10 +89,6 @@ function formatMoney(v) {
 function formatMoneyCompact(v) {
   const n = Number(v);
   return moneyFmtCompact.format(Number.isFinite(n) ? n : 0);
-}
-function formatPercent(v) {
-  const n = Number(v);
-  return `${(Number.isFinite(n) ? n : 0).toFixed(2)}%`;
 }
 function formatSignedPercent(v) {
   const n = Number.isFinite(Number(v)) ? Number(v) : 0;
@@ -241,8 +214,6 @@ function rangeToParams(range) {
 
 function renderAll() {
   renderHero();
-  renderTiles();
-  renderAllocationChart();
   renderPerformanceChart();
   renderHoldingsTable();
 }
@@ -273,47 +244,14 @@ function setDeltaBadge(node, rawValue, text) {
   node.textContent = `${arrow} ${text}`;
 }
 
-function renderTiles() {
-  const s = state.summary;
-  el.tilesRow.innerHTML = "";
-  if (!s) return;
-  const byType = Object.fromEntries(s.by_asset_type.map((t) => [t.asset_type, t]));
-
-  ASSET_TYPE_ORDER.forEach((type) => {
-    const meta = ASSET_TYPE_META[type];
-    const data = byType[type] || { market_value: 0, cost_basis: 0, unrealized_pl: 0, percent_of_portfolio: 0 };
-
-    const tile = document.createElement("div");
-    tile.className = "tile";
-    tile.style.setProperty("--tile-color", `var(${meta.varName})`);
-
-    const plSign = data.unrealized_pl > 0 ? "+" : data.unrealized_pl < 0 ? "" : "";
-
-    tile.innerHTML = `
-      <div class="tile-head">
-        <span class="tile-swatch"></span>
-        <span class="tile-label">${meta.label}</span>
-      </div>
-      <div class="tile-value">${formatMoney(data.market_value)}</div>
-      <div class="tile-sub">
-        <span>${formatPercent(data.percent_of_portfolio)} of portfolio</span>
-        <span>${plSign}${formatMoney(data.unrealized_pl)}</span>
-      </div>
-    `;
-    el.tilesRow.appendChild(tile);
-  });
-}
-
 // ---------------------------------------------------------------------
-// Allocation donut chart
+// Canvas helper
 // ---------------------------------------------------------------------
 
-// setCSSSize=true pins the element's on-page size via inline style (used for
-// the fixed-size donut canvas, which has no stylesheet rule of its own).
 // The performance canvas is sized by CSS (`width: 100%; height: 240px`), so
-// it is called with setCSSSize=false to avoid an inline style permanently
+// setCSSSize defaults to false to avoid an inline style permanently
 // overriding that responsive rule.
-function setupHiDPICanvas(canvas, cssWidth, cssHeight, setCSSSize = true) {
+function setupHiDPICanvas(canvas, cssWidth, cssHeight, setCSSSize = false) {
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.round(cssWidth * dpr);
   canvas.height = Math.round(cssHeight * dpr);
@@ -324,73 +262,6 @@ function setupHiDPICanvas(canvas, cssWidth, cssHeight, setCSSSize = true) {
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   return ctx;
-}
-
-function renderAllocationChart() {
-  const s = state.summary;
-  const byType = s ? Object.fromEntries(s.by_asset_type.map((t) => [t.asset_type, t])) : {};
-  const segments = ASSET_TYPE_ORDER.map((type) => ({
-    type,
-    label: ASSET_TYPE_META[type].label,
-    value: byType[type] ? byType[type].market_value : 0,
-    percent: byType[type] ? byType[type].percent_of_portfolio : 0,
-    color: getCSSVar(ASSET_TYPE_META[type].varName),
-  }));
-
-  const cssSize = 220;
-  const ctx = setupHiDPICanvas(el.allocationCanvas, cssSize, cssSize);
-  ctx.clearRect(0, 0, cssSize, cssSize);
-
-  const cx = cssSize / 2;
-  const cy = cssSize / 2;
-  const outerR = cssSize / 2 - 6;
-  const innerR = outerR * 0.62;
-  const total = segments.reduce((sum, seg) => sum + Math.max(seg.value, 0), 0);
-
-  if (total <= 0) {
-    ctx.beginPath();
-    ctx.arc(cx, cy, (outerR + innerR) / 2, 0, Math.PI * 2);
-    ctx.lineWidth = outerR - innerR;
-    ctx.strokeStyle = getCSSVar("--gridline");
-    ctx.stroke();
-  } else {
-    const gapRad = 0.02;
-    let angle = -Math.PI / 2;
-    segments.forEach((seg) => {
-      const frac = seg.value / total;
-      const sweep = frac * Math.PI * 2;
-      if (seg.value > 0) {
-        const start = angle + gapRad / 2;
-        const end = angle + sweep - gapRad / 2;
-        if (end > start) {
-          ctx.beginPath();
-          ctx.arc(cx, cy, outerR, start, end);
-          ctx.arc(cx, cy, innerR, end, start, true);
-          ctx.closePath();
-          ctx.fillStyle = seg.color;
-          ctx.fill();
-        }
-      }
-      angle += sweep;
-    });
-  }
-
-  el.donutCenterValue.textContent = s ? formatMoneyCompact(s.total_market_value) : "—";
-
-  el.allocationLegend.innerHTML = "";
-  segments.forEach((seg) => {
-    const li = document.createElement("li");
-    li.className = "legend-item";
-    li.innerHTML = `
-      <span class="legend-swatch" style="background:${seg.color}"></span>
-      <span class="legend-text">
-        <span class="legend-name">${seg.label}</span>
-        <span class="legend-value">${formatMoney(seg.value)}</span>
-      </span>
-      <span class="legend-percent">${formatPercent(seg.percent)}</span>
-    `;
-    el.allocationLegend.appendChild(li);
-  });
 }
 
 // ---------------------------------------------------------------------
@@ -588,25 +459,19 @@ function renderHoldingsTable() {
   el.holdingsTbody.innerHTML = "";
   holdings.forEach((h) => {
     const tr = document.createElement("tr");
-    const meta = ASSET_TYPE_META[h.asset_type];
     const plPositive = h.unrealized_pl > 0;
     const plNegative = h.unrealized_pl < 0;
     const plClass = plPositive ? "is-up" : plNegative ? "is-down" : "is-flat";
 
-    const updatedLabel = h.last_price_updated_at
-      ? formatDateTime(h.last_price_updated_at)
-      : h.is_refreshable
-      ? "Not refreshed"
-      : "—";
+    const updatedLabel = h.last_price_updated_at ? formatDateTime(h.last_price_updated_at) : "Not refreshed";
 
     tr.innerHTML = `
       <td>
         <div class="holding-name-cell">
-          <span class="holding-symbol">${h.symbol ? escapeHtml(h.symbol) : escapeHtml(h.name)}</span>
-          ${h.symbol ? `<span class="holding-name-sub">${escapeHtml(h.name)}</span>` : ""}
+          <span class="holding-symbol">${escapeHtml(h.symbol)}</span>
+          <span class="holding-name-sub">${escapeHtml(h.name)}</span>
         </div>
       </td>
-      <td><span class="type-badge type-${h.asset_type}"><span class="dot"></span>${meta.label.replace(/s$/, "")}</span></td>
       <td class="num">${formatQuantity(h.quantity)}</td>
       <td class="num">${formatMoney(h.cost_basis_per_unit)}</td>
       <td class="num">${formatMoney(h.current_price)}</td>
@@ -620,7 +485,7 @@ function renderHoldingsTable() {
       <td class="muted">${updatedLabel}</td>
       <td class="actions-col">
         <div class="row-actions">
-          ${h.is_refreshable ? `<button type="button" class="icon-btn refresh-row-btn" title="Refresh live price" aria-label="Refresh live price for ${escapeHtml(h.symbol || h.name)}">⟳</button>` : ""}
+          <button type="button" class="icon-btn refresh-row-btn" title="Refresh live price" aria-label="Refresh live price for ${escapeHtml(h.symbol)}">⟳</button>
           <button type="button" class="icon-btn edit-row-btn" title="Edit holding" aria-label="Edit ${escapeHtml(h.name)}">✎</button>
           <button type="button" class="icon-btn danger delete-row-btn" title="Delete holding" aria-label="Delete ${escapeHtml(h.name)}">✕</button>
         </div>
@@ -691,7 +556,7 @@ async function handleRefreshAll() {
   try {
     const result = await refreshAllPrices();
     if (result.total_eligible === 0) {
-      showToast({ title: "No stock or crypto holdings to refresh." });
+      showToast({ title: "No holdings to refresh." });
     } else {
       const failed = result.results.filter((r) => r.status === "ERROR");
       if (failed.length === 0) {
@@ -725,22 +590,6 @@ async function handleRefreshAll() {
 // Add / edit form
 // ---------------------------------------------------------------------
 
-function applyAssetTypeVisibility() {
-  const type = el.fAssetType.value;
-  const needsSymbol = type === "STOCK" || type === "CRYPTO";
-  const isCash = type === "CASH";
-
-  el.fSymbolWrap.hidden = !needsSymbol;
-  el.fSymbol.required = needsSymbol;
-  if (!needsSymbol) el.fSymbol.value = "";
-
-  el.fCostBasisWrap.hidden = isCash;
-  el.fCurrentPriceWrap.hidden = isCash;
-  el.fCostBasis.required = !isCash;
-
-  el.fQuantityLabel.textContent = isCash ? "Balance" : "Quantity";
-}
-
 function clearFormErrors() {
   el.formError.hidden = true;
   el.formError.textContent = "";
@@ -771,26 +620,21 @@ function resetForm() {
   el.form.reset();
   state.editingId = null;
   el.fId.value = "";
-  el.fAssetType.disabled = false;
   el.formTitle.textContent = "Add Holding";
   el.formSubmitBtn.textContent = "Add Holding";
   el.formCancelBtn.hidden = true;
   clearFormErrors();
-  applyAssetTypeVisibility();
 }
 
 function beginEdit(holding) {
   state.editingId = holding.id;
   el.fId.value = holding.id;
-  el.fAssetType.value = holding.asset_type;
-  el.fAssetType.disabled = true; // asset_type is immutable per the API contract
-  applyAssetTypeVisibility();
 
   el.fSymbol.value = holding.symbol || "";
   el.fName.value = holding.name || "";
   el.fQuantity.value = holding.quantity;
-  el.fCostBasis.value = holding.asset_type === "CASH" ? "" : holding.cost_basis_per_unit;
-  el.fCurrentPrice.value = holding.asset_type === "CASH" ? "" : holding.current_price;
+  el.fCostBasis.value = holding.cost_basis_per_unit;
+  el.fCurrentPrice.value = holding.current_price;
   el.fPurchaseDate.value = holding.purchase_date || "";
 
   el.formTitle.textContent = `Edit ${holding.symbol || holding.name}`;
@@ -801,19 +645,13 @@ function beginEdit(holding) {
 }
 
 function buildPayload() {
-  const type = el.fAssetType.value;
   const payload = {
-    asset_type: type,
+    symbol: el.fSymbol.value.trim().toUpperCase(),
     name: el.fName.value.trim(),
     quantity: el.fQuantity.value === "" ? undefined : Number(el.fQuantity.value),
   };
-  if (type === "STOCK" || type === "CRYPTO") {
-    payload.symbol = el.fSymbol.value.trim().toUpperCase();
-  }
-  if (type !== "CASH") {
-    if (el.fCostBasis.value !== "") payload.cost_basis_per_unit = Number(el.fCostBasis.value);
-    if (el.fCurrentPrice.value !== "") payload.current_price = Number(el.fCurrentPrice.value);
-  }
+  if (el.fCostBasis.value !== "") payload.cost_basis_per_unit = Number(el.fCostBasis.value);
+  if (el.fCurrentPrice.value !== "") payload.current_price = Number(el.fCurrentPrice.value);
   if (el.fPurchaseDate.value !== "") payload.purchase_date = el.fPurchaseDate.value;
   return payload;
 }
@@ -826,8 +664,6 @@ async function handleFormSubmit(e) {
 
   try {
     if (state.editingId) {
-      // asset_type is disabled/immutable in edit mode — don't resend it as a
-      // different value; sending the same value back is a defined no-op.
       await updateHolding(state.editingId, payload);
       showToast({ title: "Holding updated." });
     } else {
@@ -860,7 +696,6 @@ async function handleFormSubmit(e) {
 function wireEvents() {
   el.connectionRetryBtn.addEventListener("click", loadAll);
   el.refreshPricesBtn.addEventListener("click", handleRefreshAll);
-  el.fAssetType.addEventListener("change", applyAssetTypeVisibility);
   el.form.addEventListener("submit", handleFormSubmit);
   el.formCancelBtn.addEventListener("click", resetForm);
 
@@ -879,7 +714,6 @@ function wireEvents() {
 
   if (window.matchMedia) {
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-      renderAllocationChart();
       renderPerformanceChart();
     });
   }
@@ -898,7 +732,6 @@ function debounce(fn, wait) {
 // ---------------------------------------------------------------------
 
 function init() {
-  applyAssetTypeVisibility();
   wireEvents();
   loadAll();
 }
