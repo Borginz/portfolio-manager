@@ -390,6 +390,13 @@ button {
   color: var(--status-critical);
   min-height: 1em;
 }
+.field-hint {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  min-height: 1em;
+}
+.field-hint.is-error { color: var(--status-critical); }
 .form-error {
   background: color-mix(in srgb, var(--status-critical) 12%, transparent);
   color: var(--status-critical);

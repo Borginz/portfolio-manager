@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Body, Depends, Response
 from sqlalchemy.orm import Session
 
-from .. import crud, schemas
+from .. import crud, price_service, schemas
 from ..database import get_db
 
 router = APIRouter(prefix="/holdings", tags=["holdings"])
@@ -21,6 +21,14 @@ router = APIRouter(prefix="/holdings", tags=["holdings"])
 def list_holdings(db: Session = Depends(get_db)):
     holdings = crud.list_holdings(db)
     return [crud.to_response_dict(h) for h in holdings]
+
+
+@router.get("/lookup/{symbol}", response_model=schemas.TickerLookupResponse)
+def lookup_ticker(symbol: str):
+    """Used by the add-holding form to auto-fill company name + current
+    price from just a ticker symbol. Stateless — doesn't touch the DB, so
+    it calls price_service directly rather than going through crud.py."""
+    return price_service.lookup_ticker(symbol)
 
 
 @router.get("/{holding_id}", response_model=schemas.HoldingResponse)

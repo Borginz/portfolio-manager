@@ -99,6 +99,10 @@ export function createHolding(payload) {
   return request("/holdings", { method: "POST", body: payload });
 }
 
+export function lookupTicker(symbol) {
+  return request(`/holdings/lookup/${encodeURIComponent(symbol)}`);
+}
+
 export function updateHolding(id, payload) {
   return request(`/holdings/${id}`, { method: "PATCH", body: payload });
 }

@@ -9,6 +9,7 @@ import {
   deleteHolding,
   refreshHoldingPrice,
   refreshAllPrices,
+  lookupTicker,
   getPortfolioSummary,
   getPortfolioPerformance,
 } from "./api.js";
@@ -58,6 +59,7 @@ const el = {
   formCancelBtn: $("#form-cancel-btn"),
   fId: $("#f-id"),
   fSymbol: $("#f-symbol"),
+  fSymbolHint: $("#f-symbol-hint"),
   fName: $("#f-name"),
   fQuantity: $("#f-quantity"),
   fCostBasis: $("#f-cost-basis"),
@@ -624,6 +626,7 @@ function resetForm() {
   el.formSubmitBtn.textContent = "Add Holding";
   el.formCancelBtn.hidden = true;
   clearFormErrors();
+  setSymbolHint("");
 }
 
 function beginEdit(holding) {
@@ -641,7 +644,40 @@ function beginEdit(holding) {
   el.formSubmitBtn.textContent = "Save Changes";
   el.formCancelBtn.hidden = false;
   clearFormErrors();
+  setSymbolHint("");
   el.form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ---------------------------------------------------------------------
+// Symbol -> company name / price auto-fill
+// ---------------------------------------------------------------------
+
+function setSymbolHint(text, isError = false) {
+  el.fSymbolHint.textContent = text;
+  el.fSymbolHint.classList.toggle("is-error", isError);
+}
+
+async function handleSymbolLookup() {
+  const symbol = el.fSymbol.value.trim().toUpperCase();
+  el.fSymbol.value = symbol;
+  if (!symbol) {
+    setSymbolHint("");
+    return;
+  }
+
+  setSymbolHint("Looking up…");
+  try {
+    const result = await lookupTicker(symbol);
+    // The user may have already changed the symbol while this was in
+    // flight — only apply a result that still matches what's in the field.
+    if (el.fSymbol.value.trim().toUpperCase() !== symbol) return;
+    el.fName.value = result.name;
+    if (el.fCurrentPrice.value === "") el.fCurrentPrice.value = result.price;
+    setSymbolHint(`Found: ${result.name}`);
+  } catch (err) {
+    if (el.fSymbol.value.trim().toUpperCase() !== symbol) return;
+    setSymbolHint("Couldn't find that ticker — you can still enter the company name yourself.", true);
+  }
 }
 
 function buildPayload() {
@@ -703,6 +739,7 @@ function wireEvents() {
   el.refreshPricesBtn.addEventListener("click", handleRefreshAll);
   el.form.addEventListener("submit", handleFormSubmit);
   el.formCancelBtn.addEventListener("click", resetForm);
+  el.fSymbol.addEventListener("blur", handleSymbolLookup);
 
   el.rangeFilter.addEventListener("click", async (e) => {
     const btn = e.target.closest(".range-btn");

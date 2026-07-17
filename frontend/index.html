@@ -86,10 +86,11 @@
           <label for="f-symbol">Symbol</label>
           <input type="text" id="f-symbol" name="symbol" placeholder="AAPL" maxlength="20" autocomplete="off" required />
           <p class="field-error" data-error-for="symbol"></p>
+          <p id="f-symbol-hint" class="field-hint"></p>
         </div>
 
         <div class="field">
-          <label for="f-name">Company name</label>
+          <label for="f-name">Company name <span class="muted">(auto-filled from symbol)</span></label>
           <input type="text" id="f-name" name="name" placeholder="Apple Inc." maxlength="200" required />
           <p class="field-error" data-error-for="name"></p>
         </div>

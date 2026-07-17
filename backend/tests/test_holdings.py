@@ -37,6 +37,57 @@ def test_create_holding_defaults_current_price_to_cost_basis(client):
     assert body["unrealized_pl"] == 0.00
 
 
+def test_lookup_ticker_success(client, monkeypatch):
+    from app import price_service
+
+    monkeypatch.setattr(price_service, "get_latest_price", lambda symbol: 195.50)
+    monkeypatch.setattr(price_service, "_fetch_company_name", lambda t: "Apple Inc.")
+
+    resp = client.get("/api/holdings/lookup/aapl")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["symbol"] == "AAPL"
+    assert body["name"] == "Apple Inc."
+    assert body["price"] == 195.50
+
+
+def test_lookup_ticker_falls_back_to_symbol_when_name_unavailable(client, monkeypatch):
+    from app import price_service
+
+    monkeypatch.setattr(price_service, "get_latest_price", lambda symbol: 10.0)
+    monkeypatch.setattr(price_service, "_fetch_company_name", lambda t: None)
+
+    resp = client.get("/api/holdings/lookup/zzzz")
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "ZZZZ"
+
+
+def test_lookup_ticker_not_found(client, monkeypatch):
+    from app import price_service
+
+    def fake_price(symbol):
+        raise price_service.TickerNotFoundError(
+            f"No price data returned by Yahoo Finance for symbol '{symbol}'."
+        )
+
+    monkeypatch.setattr(price_service, "get_latest_price", fake_price)
+    resp = client.get("/api/holdings/lookup/zzzz")
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "TICKER_NOT_FOUND"
+
+
+def test_lookup_ticker_upstream_unavailable(client, monkeypatch):
+    from app import price_service
+
+    def fake_price(symbol):
+        raise price_service.UpstreamUnavailableError("Failed to reach Yahoo Finance: timeout")
+
+    monkeypatch.setattr(price_service, "get_latest_price", fake_price)
+    resp = client.get("/api/holdings/lookup/aapl")
+    assert resp.status_code == 502
+    assert resp.json()["error"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
 def test_create_holding_merges_into_existing_symbol(client):
     first = client.post(
         "/api/holdings",

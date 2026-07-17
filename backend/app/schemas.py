@@ -55,6 +55,17 @@ class HoldingResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Ticker lookup (auto-fill company name + price from a symbol)
+# ---------------------------------------------------------------------------
+
+
+class TickerLookupResponse(BaseModel):
+    symbol: str
+    name: str
+    price: float
+
+
+# ---------------------------------------------------------------------------
 # Error envelope (shared shape, §5)
 # ---------------------------------------------------------------------------
 

@@ -75,3 +75,32 @@ def get_latest_price(ticker: str) -> float:
         raise UpstreamUnavailableError(
             f"Failed to reach Yahoo Finance while refreshing symbol '{ticker}': {exc}"
         ) from exc
+
+
+def _fetch_company_name(t: yf.Ticker) -> str | None:
+    """Best-effort company/fund name lookup via yfinance's `.info` (slower
+    than `fast_info`, but it's the field that actually carries a name).
+    Returns None rather than raising — a missing name isn't fatal to a
+    lookup as long as the ticker itself is valid (see `lookup_ticker`)."""
+    try:
+        info = t.info
+    except Exception:
+        return None
+    if not info:
+        return None
+    return info.get("longName") or info.get("shortName") or info.get("displayName")
+
+
+def lookup_ticker(ticker: str) -> dict:
+    """Used to auto-fill the add-holding form from just a symbol: returns
+    `{"symbol", "name", "price"}` for a valid ticker.
+
+    Reuses `get_latest_price` to confirm the ticker is real and to get its
+    price (raising the same `TickerNotFoundError` / `UpstreamUnavailableError`
+    on failure); the company name is looked up separately and falls back to
+    the ticker symbol itself if Yahoo Finance doesn't return one.
+    """
+    price = get_latest_price(ticker)
+    normalized = ticker.strip().upper()
+    name = _fetch_company_name(yf.Ticker(ticker)) or normalized
+    return {"symbol": normalized, "name": name, "price": price}
