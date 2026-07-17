@@ -1,0 +1,34 @@
+# --- Python ---
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environment variables (never commit real secrets)
+.env
+backend/.env
+
+# --- Node (if any tooling is added later) ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- IDE / editor folders ---
+.vscode/
+.idea/
+*.swp
+*.swo
