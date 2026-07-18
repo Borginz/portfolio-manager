@@ -22,6 +22,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# --- Local dev server logs ---
+uvicorn_out.log
+uvicorn_err.log
+frontend_out.log
+frontend_err.log
+
 # --- OS junk ---
 .DS_Store
 Thumbs.db

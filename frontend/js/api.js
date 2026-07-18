@@ -3,7 +3,11 @@
 // success and throw an ApiError on any non-2xx response or network failure,
 // so callers (app.js) can branch on `err.code` / `err.isNetworkError`.
 
-export const API_BASE = "http://localhost:8000/api";
+// Use whatever host the page itself was loaded from (localhost, 127.0.0.1,
+// a LAN IP, etc.) rather than hardcoding "localhost" — avoids a same-machine
+// origin mismatch if the frontend is ever served from a different host name.
+const apiHost = window.location.hostname || "localhost";
+export const API_BASE = `http://${apiHost}:8000/api`;
 
 /**
  * Error thrown by every wrapper below. Mirrors the API's shared error

@@ -774,6 +774,13 @@ function debounce(fn, wait) {
 // ---------------------------------------------------------------------
 
 function init() {
+  // Defensive cleanup: if this page was ever reached via a raw form
+  // submission (e.g. the form's JS handler failed to attach for some
+  // reason), strip the leftover query string so the URL doesn't stay
+  // polluted with stale form data.
+  if (window.location.search) {
+    window.history.replaceState({}, "", window.location.pathname);
+  }
   wireEvents();
   loadAll();
 }
